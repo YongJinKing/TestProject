@@ -4,26 +4,78 @@ using UnityEngine;
 public class GridSystem : MonoBehaviour
 {
     public GameObject baseGridObject;
-    public Vector2 gridSize;  // °¢ ³ëµåÀÇ Å©±â
+    public Vector2 gridSize;  // ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ Å©ï¿½ï¿½
+    [SerializeField] private LayerMask exclusionLayer;
 
     private int rows = 0;
     private int cols = 0;
     private float gridWidth;
     private float gridHeight;
 
+    private Vector3 firstClickPoint;
+    private Vector3 secondClickPoint;
+    private bool twoPointSelected = false;
     public bool didInit = false;
 
     private List<GridNode> nodes = new List<GridNode>();
+    private Vector3 currentMousePosition;
 
     private void Start()
     {
         InitBaseGrid();
     }
 
+    private void Update()
+    {
+        HandleInput();
+        UpdateMouseWorldPosition();
+    }
+
+    private void UpdateMouseWorldPosition()
+    {
+        Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
+        if (Physics.Raycast(ray, out RaycastHit hit))
+        {
+            currentMousePosition = hit.point;
+        }
+    }
+
     private void InitBaseGrid()
     {
         CalculateGridSize(baseGridObject);
         InitializeGrid();
+        InitializeOccupiedNodes();
+    }
+
+    private void HandleInput()
+    {
+        if (Input.GetMouseButtonDown(0))
+        {
+            Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
+            if (Physics.Raycast(ray, out RaycastHit hit))
+            {
+                if (!twoPointSelected)
+                {
+                    if (firstClickPoint == Vector3.zero)
+                    {
+                        firstClickPoint = hit.point;
+                        Debug.Log($"Ã¹ Å¬ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Æ®: {firstClickPoint}");
+                    }
+                    else if (secondClickPoint == Vector3.zero)
+                    {
+                        secondClickPoint = hit.point;
+                        Debug.Log($"ï¿½ï¿½ ï¿½ï¿½Â° Å¬ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Æ®: {secondClickPoint}");
+                        twoPointSelected = true;
+                    }
+                }
+            }
+        }
+        if (Input.GetMouseButtonDown(1))
+        {
+            firstClickPoint = Vector3.zero;
+            secondClickPoint = Vector3.zero;
+            twoPointSelected = false;
+        }
     }
 
     private void CalculateGridSize(GameObject baseGrid)
@@ -39,7 +91,7 @@ public class GridSystem : MonoBehaviour
         }
         else
         {
-            Debug.LogError("baseGridObject°¡ ¼³Á¤µÇÁö ¾Ê¾Ò½À´Ï´Ù.");
+            Debug.LogError("baseGridObjectï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ê¾Ò½ï¿½ï¿½Ï´ï¿½.");
         }
     }
 
@@ -57,6 +109,15 @@ public class GridSystem : MonoBehaviour
         }
     }
 
+    private void InitializeOccupiedNodes()
+    {
+        foreach (GridNode node in nodes)
+        {
+            Collider[] colliders = Physics.OverlapSphere(node.position, gridSize.x / 2, exclusionLayer);
+            node.isOccupied = colliders.Length > 0;
+        }
+    }
+
     public GridNode GetNodeAtPosition(Vector3 position)
     {
         foreach (GridNode node in nodes)
@@ -69,15 +130,86 @@ public class GridSystem : MonoBehaviour
         return null;
     }
 
-    private void OnDrawGizmos()
+    public List<GridNode> FindPath(Vector3 startPosition, Vector3 endPosition)
     {
-        if (!didInit)
+        GridNode startNode = GetNodeAtPosition(startPosition);
+        GridNode endNode = GetNodeAtPosition(endPosition);
+
+        if (startNode == null || endNode == null)
         {
-            nodes.Clear();
-            InitBaseGrid();
-            didInit = true;
+            //Debug.LogError("ï¿½ï¿½ï¿½ï¿½ ï¿½Ç´ï¿½ ï¿½ï¿½ ï¿½ï¿½å°¡ ï¿½ï¿½È¿ï¿½ï¿½ï¿½ï¿½ ï¿½Ê½ï¿½ï¿½Ï´ï¿½.");
+            return null;
         }
 
+        Queue<GridNode> queue = new Queue<GridNode>();
+        Dictionary<GridNode, GridNode> cameFrom = new Dictionary<GridNode, GridNode>();
+        queue.Enqueue(startNode);
+        cameFrom[startNode] = null;
+
+        while (queue.Count > 0)
+        {
+            GridNode currentNode = queue.Dequeue();
+
+            if (currentNode == endNode)
+                break;
+
+            foreach (GridNode neighbor in GetNeighbors(currentNode))
+            {
+                if (neighbor.isOccupied) continue;
+
+                if (!cameFrom.ContainsKey(neighbor))
+                {
+                    queue.Enqueue(neighbor);
+                    cameFrom[neighbor] = currentNode;
+                }
+            }
+        }
+
+        if (!cameFrom.ContainsKey(endNode))
+        {
+            Debug.LogWarning("ï¿½ï¿½Î¸ï¿½ Ã£ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï´ï¿½.");
+            return null;
+        }
+
+        List<GridNode> path = new List<GridNode>();
+        GridNode current = endNode;
+
+        while (current != null)
+        {
+            path.Add(current);
+            current = cameFrom.ContainsKey(current) ? cameFrom[current] : null;
+        }
+        path.Reverse();
+
+        return path;
+    }
+
+
+    private List<GridNode> GetNeighbors(GridNode node)
+    {
+        List<GridNode> neighbors = new List<GridNode>();
+
+        Vector3[] directions = {
+            new Vector3(0, 0, gridSize.y),
+            new Vector3(0, 0, -gridSize.y),
+            new Vector3(gridSize.x, 0, 0),
+            new Vector3(-gridSize.x, 0, 0)
+        };
+
+        foreach (Vector3 direction in directions)
+        {
+            GridNode neighbor = GetNodeAtPosition(node.position + direction);
+            if (neighbor != null)
+                neighbors.Add(neighbor);
+        }
+
+        return neighbors;
+    }
+
+    private void OnDrawGizmos()
+    {
+        if (!didInit && nodes.Count == 0) InitBaseGrid();
+        didInit = true;
 
         if (nodes == null || nodes.Count == 0) return;
 
@@ -85,6 +217,43 @@ public class GridSystem : MonoBehaviour
         {
             Gizmos.color = node.isOccupied ? Color.red : Color.grey;
             Gizmos.DrawWireCube(node.position, new Vector3(gridSize.x, 0.1f, gridSize.y));
+        }
+
+        if (firstClickPoint != Vector3.zero)
+        {
+            Gizmos.color = Color.black;
+            Gizmos.DrawSphere(firstClickPoint, 0.5f);
+
+            if (currentMousePosition != Vector3.zero)
+            {
+                Gizmos.color = Color.green;
+                Gizmos.DrawLine(firstClickPoint, currentMousePosition);
+
+                List<GridNode> path = FindPath(firstClickPoint, currentMousePosition);
+                if (path != null)
+                {
+                    Gizmos.color = Color.yellow;
+                    for (int i = 0; i < path.Count - 1; i++)
+                    {
+                        Gizmos.DrawLine(path[i].position, path[i + 1].position);
+                    }
+                }
+            }
+        }
+
+        if (twoPointSelected && firstClickPoint != Vector3.zero && secondClickPoint != Vector3.zero)
+        {
+            List<GridNode> path = FindPath(firstClickPoint, secondClickPoint);
+            if (path != null)
+            {
+                Gizmos.color = Color.yellow;
+                for (int i = 0; i < path.Count - 1; i++)
+                {
+                    Gizmos.DrawLine(path[i].position, path[i + 1].position);
+                }
+            }
+            Gizmos.color = Color.black;
+            Gizmos.DrawSphere(secondClickPoint, 0.5f);
         }
     }
 }
